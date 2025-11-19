@@ -8,7 +8,7 @@
 
 int main() {
     const std::size_t POOL_SIZE = 200 * 1024 * 1024; // 10 MB
-    const int DURATION_MS = 3000; // 2000 ms
+    const int DURATION_MS = 3000; // 3000 ms
 
     // ==============================
     // TLSF Allocator Benchmark
@@ -135,4 +135,5 @@ int main() {
 
     printf("\nAll tests completed successfully.\n");
     return 0;
+
 }
