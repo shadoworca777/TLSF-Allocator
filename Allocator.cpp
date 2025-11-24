@@ -4,49 +4,46 @@
 
 namespace TLSF {
 
+static const int table[] = {
+    -1, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4,
+    4, 4,
+    4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5,
+    5, 5, 5, 5, 5, 5, 5,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6,
+    6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6,
+    6, 6, 6, 6, 6, 6, 6,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7,
+    7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7,
+    7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7,
+    7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7,
+    7, 7, 7, 7, 7, 7, 7
+};
+
 uint32_t Allocator::getMSB(uint64_t v) {
-    if (v == 0) return 64;
+    uint32_t a = 0;
 
-    static const int index64[64] = {
-         0,  1, 48,  2, 57, 49, 28,  3,
-        61, 58, 50, 42, 38, 29, 17,  4,
-        62, 55, 59, 36, 53, 51, 43, 22,
-        45, 39, 33, 30, 24, 18, 12,  5,
-        63, 47, 56, 27, 60, 41, 37, 16,
-        54, 35, 52, 21, 44, 32, 23, 11,
-        46, 26, 40, 15, 34, 20, 31, 10,
-        25, 14, 19,  9, 13,  8,  7,  6
-    };
+    if (v > 0xFFFFFFFFULL) { v >>= 32; a += 32; }
+    if (v > 0xFFFF)        { v >>= 16; a += 16; }
+    if (v > 0xFF)          { v >>=  8; a +=  8; }
 
-    v |= v >> 1;
-    v |= v >> 2;
-    v |= v >> 4;
-    v |= v >> 8;
-    v |= v >> 16;
-    v |= v >> 32;
-
-    uint64_t isolated = v - (v >> 1);
-    int msb = index64[(isolated * 0x03F79D71B4CB0A89ULL) >> 58];
-
-    return 63 - msb;
+    return table[v] + a;
 }
 
 uint32_t Allocator::getLSB(uint64_t v) {
-    if (v == 0) return 64;
-
-    static const int Table[64] = {
-        63,  0, 58,  1, 59, 47, 53,  2,
-        60, 39, 48, 27, 54, 33, 42,  3,
-        61, 51, 37, 40, 49, 18, 28, 20,
-        55, 30, 34, 11, 43, 14, 22,  4,
-        62, 57, 46, 52, 38, 26, 32, 41,
-        50, 36, 17, 19, 29, 10, 13, 21,
-        56, 45, 25, 31, 35, 16,  9, 12,
-        44, 24, 15,  8, 23,  7,  6,  5
-    };
-
-    uint64_t isolated = v & -v;
-    return Table[(isolated * 0x07EDD5E59A4E28C2ULL) >> 58];
+    uint64_t x = v & -v;
+    return getMSB(x);
 }
 
 uint32_t Allocator::getSecondLevelIndex(size_t size, uint32_t msb) {
@@ -147,17 +144,23 @@ BoundaryTagBegin* Allocator::searchFreeBlock(size_t size, uint32_t* out_fli, uin
 
 BoundaryTagBegin* Allocator::mergeFreeBlockPrevNext(BoundaryTagBegin* b) {
     BoundaryTagBegin* next = b->nextTag();
-    if (next && !next->isUsed()) {
-        unregisterFreeBlock(next);
-        b->merge(next);
+
+    uint8_t* pool_end = m_pool_start + m_pool_total_size;
+    if (reinterpret_cast<uint8_t*>(next) < pool_end) {
+        if (!next->isUsed()) {
+            unregisterFreeBlock(next);
+            b->merge(next);
+        }
     }
 
-    BoundaryTagBegin* prev = b->prevTag();
-    if (reinterpret_cast<uint8_t*>(prev) >= m_pool_start && prev != b) {
-        if (!prev->isUsed()) {
-            unregisterFreeBlock(prev);
-            prev->merge(b);
-            b = prev;
+    if (reinterpret_cast<uint8_t*>(b) > m_pool_start) {
+        BoundaryTagBegin* prev = b->prevTag();
+        if (reinterpret_cast<uint8_t*>(prev) >= m_pool_start) {
+            if (!prev->isUsed()) {
+                unregisterFreeBlock(prev);
+                prev->merge(b);
+                b = prev;
+            }
         }
     }
 
